@@ -1,0 +1,26 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environment
+venv/
+env/
+ENV/
+
+# Environment variables (Sensitive Data!)
+.env
+
+# ChromaDB Long-term memory storage
+.chroma_db/
+chroma.sqlite3
+
+# Test generated files and reports
+generated_tests/
+.pytest_cache/
+.report.json
+
+# IDE / OS specific files
+.vscode/
+.idea/
+.DS_Store

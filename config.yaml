@@ -1,0 +1,26 @@
+# API 测试自愈 Agent 全局配置
+
+# LLM 客户端配置
+# 注意: API Key 等敏感信息依然存放在 .env 中，不在这里暴露
+llm:
+  # 默认使用的模型名称，如果在 .env 里没配，就用这里的
+  model: "gpt-4o-mini"
+  # 生成测试代码时的 temperature，越低代码越稳定
+  temperature: 0.2
+  
+# 自愈循环配置
+healing:
+  # 当测试失败时，最多尝试请求大模型修复的次数
+  max_rounds: 3
+  # 是否开启长期记忆库（ChromaDB）来增强修复能力
+  enable_long_memory: true
+  
+# API 环境配置
+api:
+  # 生成的测试代码中，API 默认请求的 base url
+  default_base_url: "http://localhost:8080"
+  
+# 测试执行配置
+execution:
+  # 生成的测试用例存放目录
+  test_dir: "generated_tests"
