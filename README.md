@@ -67,22 +67,43 @@ python cli.py heal -i data/petstore.yaml -r 3
 
 ---
 
+## 🤖 Claude Code Skill (一键式体验)
+
+本项目内置了 **Claude Code Skill**，在 Claude Code 中打开项目后即可使用：
+
+```bash
+/api-test-heal <openapi_file>      # 完整流水线：解析→生成→执行→自愈修复
+/api-test-generate <openapi_file>   # 仅生成测试代码，不执行
+```
+
+**示例：**
+```
+/api-test-heal data/petstore.yaml
+```
+
+只需一行命令，Agent 自动完成全部工作，无需手动敲 CLI 参数。Skill 定义在 `.claude/skills/api-test-heal/SKILL.md`，随项目一起提交到 GitHub，克隆即用。
+
+---
+
 ## 📂 项目核心结构
 
 ```text
 api_test_agent/
-├── .env                  # 敏感环境变量 (不上传Git)
-├── config.yaml           # 全局非敏感配置 (重试次数、temperature等)
-├── app.py                # Streamlit Web 前端交互入口
-├── cli.py                # Click 命令行交互入口
-├── pipeline.py           # 核心流水线调度器 (大管家)
-├── parser.py             # OpenAPI 文档解析器
-├── scenario_builder.py   # 基于依赖推断的场景代码生成器
-├── executor.py           # Pytest 执行与错误日志捕获器
-├── healer.py             # LLM 代码自我修复引擎 (老中医)
-├── memory.py             # 基于 ChromaDB 的记忆存储检索中枢
-├── data/                 # 存放测试用的 OpenAPI 文档示例
-└── generated_tests/      # (自动生成) Agent 编写和修复的测试脚本存放处
+├── .claude/skills/        # Claude Code Skill 定义 (项目共享)
+├── .env                   # 敏感环境变量 (不上传Git)
+├── config.yaml            # 全局非敏感配置 (重试次数、temperature等)
+├── app.py                 # Streamlit Web 前端交互入口
+├── cli.py                 # Click 命令行交互入口
+├── pipeline.py            # 核心流水线调度器 (大管家)
+├── parser.py              # OpenAPI 文档解析器
+├── scenario_builder.py    # 基于依赖推断的 CRUD 场景代码生成器
+├── generator.py           # 单接口测试用例生成器 (每端点一个函数)
+├── executor.py            # Pytest 执行与错误日志捕获器
+├── healer.py              # LLM 代码自我修复引擎
+├── memory.py              # 短期记忆字典 + ChromaDB 长期向量记忆
+├── llm_client.py          # 统一 LLM 调用客户端 (单例 + 指数退避重试)
+├── data/                  # 存放测试用的 OpenAPI 文档示例
+└── generated_tests/       # (自动生成) Agent 编写和修复的测试脚本存放处
 ```
 
 ---
