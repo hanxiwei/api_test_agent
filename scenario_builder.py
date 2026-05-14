@@ -7,16 +7,7 @@
 3. 调用 LLM 生成包含多个步骤的 pytest 场景函数
 """
 import os
-from openai import OpenAI
-from dotenv import load_dotenv
-from config import get_config
-
-load_dotenv(override=True)
-
-client = OpenAI(
-    api_key=os.getenv("OPENAI_API_KEY"),
-    base_url=os.getenv("OPENAI_BASE_URL")
-)
+from llm_client import chat_completion
 
 # ── 步骤1: 按资源分组 ─────────────────────────────────────────
 
@@ -140,16 +131,11 @@ def test_example_crud():
 
 def generate_scenario_code(prompt):
     """调用 LLM 并返回生成的 Python 代码字符串"""
-    model_name = os.getenv("LLM_MODEL") or get_config("llm", "model", "gpt-4o-mini")
-    temp = get_config("llm", "temperature", 0.2)
-    
-    response = client.chat.completions.create(
-        model=model_name,
+    response = chat_completion(
         messages=[
             {"role": "system", "content": "你是一个资深的 Python 测试开发工程师，请生成高质量的场景测试代码。"},
             {"role": "user", "content": prompt}
-        ],
-        temperature=temp
+        ]
     )
 
     code = response.choices[0].message.content.strip()

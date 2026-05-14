@@ -1,14 +1,8 @@
 import os
-from openai import OpenAI
 from dotenv import load_dotenv
-from config import get_config
+from llm_client import chat_completion
 
 load_dotenv(override=True)
-
-client = OpenAI(
-    api_key=os.getenv("OPENAI_API_KEY"),
-    base_url=os.getenv("OPENAI_BASE_URL")
-)
 
 from memory import (
     get_short_memory, save_short_memory,
@@ -62,18 +56,13 @@ def heal_testcase(file_path, original_code, error_log, round_num=1):
     """
     
     try:
-        model_name = os.getenv("LLM_MODEL") or get_config("llm", "model", "gpt-4o-mini")
-        temp = get_config("llm", "temperature", 0.2)
-        
-        response = client.chat.completions.create(
-            model=model_name,
+        response = chat_completion(
             messages=[
                 {"role": "system", "content": "你是一个自动修复 Python 代码的机器人。只输出代码。"},
                 {"role": "user", "content": prompt}
-            ],
-            temperature=temp
+            ]
         )
-        
+
         code = response.choices[0].message.content.strip()
         
         # 清理 Markdown 标记

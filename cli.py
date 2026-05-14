@@ -13,7 +13,7 @@ from scenario_builder import build_all_scenarios
 @click.group()
 def cli():
     """
-    🤖 API 测试自愈 Agent 命令行工具
+    API 测试自愈 Agent 命令行工具
     
     使用本工具，你可以通过解析 OpenAPI 规范，自动生成 Python (pytest) 自动化测试脚本。
     并且能在测试执行失败时，利用 LLM 进行代码自愈和修复。
@@ -62,7 +62,7 @@ def generate_command(input):
     generated_files = build_all_scenarios(endpoints)
     
     if generated_files:
-        click.echo(f"\n✅ 代码生成完毕！共生成 {len(generated_files)} 个测试文件，存放于 generated_tests/ 目录。")
+        click.echo(f"\n[OK] 代码生成完毕！共生成 {len(generated_files)} 个测试文件，存放于 generated_tests/ 目录。")
     else:
         click.echo("\n⚠️ 未能生成任何代码。")
 

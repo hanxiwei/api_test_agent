@@ -5,3 +5,8 @@ requests
 prance
 openapi-spec-validator
 python-dotenv
+chromadb
+click
+streamlit
+pytest-json-report
+tenacity
