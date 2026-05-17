@@ -42,7 +42,9 @@ def parse_openapi(file_path):
                 'operationId': details.get('operationId', f"{method}_{path.replace('/', '_').replace('{', '').replace('}', '')}"),
                 'summary': details.get('summary', ''),
                 'parameters': details.get('parameters', []),
-                'requestBody': details.get('requestBody', {})
+                'requestBody': details.get('requestBody', {}),
+                # 提取 x-async 扩展字段（异步接口标注）
+                'x-async': details.get('x-async')
             }
             endpoints.append(endpoint_info)
             

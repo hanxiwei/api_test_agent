@@ -5,96 +5,120 @@ from executor import run_tests
 from healer import heal_testcase, apply_fix
 from memory import save_long_memory, generate_error_signature
 
+
 def run_pipeline(openapi_path='data/petstore.yaml', max_rounds=3, logger=print):
     """
-    执行完整的 Agent 流程，并支持外部传入 logger 函数以实时获取日志。
+    执行完整的 Agent 流程：
+    解析 → 生成 → 执行 → 诊断失败类别 → 修复/bug标记 → 写入记忆
     """
     logger("========================================")
     logger("      API 测试自愈 Agent 主流程启动       ")
     logger("========================================")
-    
-    # 1. 阶段 1/2：解析 OpenAPI 并生成测试用例
+
+    # ── 阶段 1/2：解析 OpenAPI 并生成测试用例 ──
     logger("\n>>> 步骤 1: 解析 API 规范与生成测试场景")
     endpoints = parse_openapi(openapi_path)
     if not endpoints:
         logger("未找到任何接口定义，退出。")
         return {"status": "error", "message": "解析 OpenAPI 失败或无端点"}
-        
+
     generated_files = build_all_scenarios(endpoints)
     if not generated_files:
         logger("未生成任何场景用例，退出。")
         return {"status": "error", "message": "生成场景用例失败"}
-        
+
     logger(f"\n共生成 {len(generated_files)} 个测试文件。")
-    
-    # 2. 阶段 3：执行测试
+
+    # ── 阶段 3：执行测试 ──
     logger("\n>>> 步骤 2: 首次执行测试用例")
     failed_tests = run_tests("generated_tests")
-    
+
     if not failed_tests:
-        logger("[OK] 太棒了！所有测试首次执行即全部通过！")
+        logger("[OK] 所有测试首次执行即全部通过！")
         return {"status": "success", "message": "所有测试首次执行全部通过"}
-        
-    logger(f"[Warning] 发现 {len(failed_tests)} 个失败的测试文件，进入自愈循环。")
-    
-    # 3. 阶段 3：自愈循环
+
+    logger(f"[Warning] 发现 {len(failed_tests)} 个失败的测试文件，进入分析修复流程。")
+
+    # 记录疑似后端 bug 的测试（这些不修复，标记 xfail 后跳过）
+    backend_bugs = []
+
+    # ── 阶段 4：自愈循环 ──
     for round_num in range(1, max_rounds + 1):
         logger(f"\n>>> 步骤 3: 自愈循环 - 第 {round_num} 轮")
-        
-        # 为了长期记忆，我们需要记录这轮修复了哪些文件以及它们当时的错误日志
+
         attempted_fixes = {}
-        
-        # 针对每个失败的文件进行修复
+        still_test_bugs = {}
+
         for file_path, error_log in failed_tests.items():
-            logger(f"  正在尝试修复文件: {file_path}")
-            
-            # 读取当前（失败的）代码
+            logger(f"  正在分析文件: {file_path}")
+
             with open(file_path, "r", encoding="utf-8") as f:
                 original_code = f.read()
-                
-            # 调用大模型生成修复代码
-            fixed_code = heal_testcase(file_path, original_code, error_log, round_num)
-            
-            # 记录尝试修复的信息，用于稍后存入长期记忆
-            attempted_fixes[file_path] = {
-                "error_log": error_log,
-                "error_signature": generate_error_signature(error_log),
-                "fixed_code": fixed_code
-            }
-            
-            # 写入修复后的代码
-            apply_fix(file_path, fixed_code)
-            
-        # 本轮修复完成后，重新执行失败的文件所在的目录
+
+            # heal_testcase 内部会先诊断，再决定修不修
+            result = heal_testcase(file_path, original_code, error_log, round_num)
+
+            if result["action"] == "backend_bug":
+                # 后端问题：已标记 xfail，不进入修复循环
+                backend_bugs.append({
+                    "file": file_path,
+                    "reason": result["reason"],
+                    "round": round_num
+                })
+                continue
+
+            if result["action"] == "test_bug":
+                apply_fix(file_path, result["code"])
+                attempted_fixes[file_path] = {
+                    "error_log": error_log,
+                    "error_signature": generate_error_signature(error_log),
+                    "fixed_code": result["code"]
+                }
+
+        if not attempted_fixes:
+            logger("  本轮无需修复的测试代码 bug，结束自愈循环。")
+            break
+
+        # 重新执行
         logger(f"\n  [自愈验证] 重新执行测试...")
         new_failed_tests = run_tests("generated_tests")
-        
-        # --- 阶段 4：保存长期记忆 ---
-        # 如果一个文件在 attempted_fixes 里，但不在 new_failed_tests 里，说明它被成功修复了！
+
+        # 保存长期记忆：修复成功才写入
         for file_path, info in attempted_fixes.items():
             if file_path not in new_failed_tests:
                 logger(f"  [Memory] 验证通过！将 {file_path} 的修复经验写入长期记忆。")
                 save_long_memory(info["error_log"], info["error_signature"], info["fixed_code"])
-                
-        failed_tests = new_failed_tests
-        # -----------------------------
-        
+
+        # 过滤掉 backend_bug 的测试，只保留 test_bug 的进入下一轮
+        still_test_bugs = {}
+        for fp, err in new_failed_tests.items():
+            if not any(b["file"] == fp for b in backend_bugs):
+                still_test_bugs[fp] = err
+
+        failed_tests = still_test_bugs
+
         if not failed_tests:
-            logger(f"\n[OK] 恭喜！在第 {round_num} 轮修复后，所有测试全部通过！")
+            logger(f"\n[OK] 在第 {round_num} 轮修复后，所有可修复的测试全部通过！")
             break
         else:
-            logger(f"  第 {round_num} 轮修复后，仍有 {len(failed_tests)} 个测试失败。")
-            
+            logger(f"  第 {round_num} 轮后，仍有 {len(failed_tests)} 个测试代码 bug 待修复。")
+
+    # ── 汇总结果 ──
+    result = {"status": "success", "message": "所有测试已处理完毕"}
+    if backend_bugs:
+        result["backend_bugs"] = backend_bugs
+        logger(f"\n[Report] 发现 {len(backend_bugs)} 个疑似后端 Bug（已标记 xfail，跳过修复）：")
+        for b in backend_bugs:
+            logger(f"  - {os.path.basename(b['file'])} (第{b['round']}轮): {b['reason'][:60]}")
     if failed_tests:
-        logger("\n[Error] 自愈循环结束。已达到最大重试次数，以下用例未能修复：")
-        for f in failed_tests.keys():
-            logger(f"  - {f}")
-        return {"status": "partial_success", "failed_tests": list(failed_tests.keys())}
-            
+        result["status"] = "partial_success"
+        result["failed_tests"] = list(failed_tests.keys())
+        logger(f"\n[Report] {len(failed_tests)} 个测试代码 bug 未能完全修复。")
+
     logger("\n========================================")
     logger("           Agent 执行流程结束             ")
     logger("========================================")
-    return {"status": "success", "message": "所有测试已通过自愈循环修复并成功"}
+    return result
 
 def main():
     run_pipeline()

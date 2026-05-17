@@ -1,0 +1,637 @@
+openapi: "3.0.3"
+info:
+  title: AI 推理与报表平台 API
+  description: |
+    一个典型的 AI SaaS 平台后端，包含：
+    - 图片生成（异步推理）
+    - 报表导出（异步任务）
+    - 模板管理（同步 CRUD）
+
+    异步接口使用 x-async 扩展字段标注轮询策略。
+  version: "1.0.0"
+  contact:
+    name: API Test Agent Team
+
+servers:
+  - url: http://localhost:8080/v1
+    description: 本地测试环境
+
+tags:
+  - name: Images
+    description: 图片生成与管理（含异步推理）
+  - name: Reports
+    description: 报表导出与管理（含异步任务）
+  - name: Templates
+    description: 模板管理（纯同步 CRUD）
+
+# ─────────────────────────────────────────────────────
+#  路径定义
+# ─────────────────────────────────────────────────────
+
+paths:
+
+  # ═══════════════════ 图片生成（异步） ═══════════════════
+
+  /images/generate:
+    post:
+      tags: [Images]
+      operationId: submitImageGeneration
+      summary: 提交图片生成任务（异步）
+      description: |
+        提交 AI 图片生成请求，返回任务 ID。
+        需要通过 GET /images/generate/{task_id} 轮询任务结果。
+      x-async:
+        poll_path: /images/generate/{task_id}
+        poll_method: GET
+        status_field: status
+        success_value: done
+        failure_value: failed
+        poll_interval: 2
+        poll_timeout: 60
+        result_fields:
+          - image_url
+          - thumbnail_url
+          - width
+          - height
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [prompt]
+              properties:
+                prompt:
+                  type: string
+                  description: 图片生成提示词，如 "一只在雨中奔跑的柴犬，赛博朋克风格"
+                  example: "A Shiba Inu running in rain, cyberpunk style, 8k resolution"
+                size:
+                  type: string
+                  enum: ["512x512", "768x768", "1024x1024"]
+                  default: "512x512"
+                style:
+                  type: string
+                  description: 画风，如 realistic/anime/oil-painting
+                  example: "realistic"
+                negative_prompt:
+                  type: string
+                  description: 反向提示词，排除不希望出现的元素
+      responses:
+        "202":
+          description: 任务已提交
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  task_id:
+                    type: string
+                    description: 异步任务唯一标识
+                    example: "img_abc123xyz"
+                  status:
+                    type: string
+                    description: 初始状态，始终为 pending
+                    example: "pending"
+                  created_at:
+                    type: string
+                    format: date-time
+        "400":
+          description: 请求参数错误（如 prompt 为空）
+        "429":
+          description: 请求频率过高，触发限流
+
+  /images/generate/{task_id}:
+    get:
+      tags: [Images]
+      operationId: getImageGenerationStatus
+      summary: 查询图片生成任务状态（轮询接口）
+      parameters:
+        - name: task_id
+          in: path
+          required: true
+          schema:
+            type: string
+          description: 任务 ID
+      responses:
+        "200":
+          description: 返回任务状态
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [task_id, status]
+                properties:
+                  task_id:
+                    type: string
+                  status:
+                    type: string
+                    enum: [pending, processing, done, failed]
+                    description: |
+                      pending  - 排队中
+                      processing - 推理中
+                      done    - 生成成功
+                      failed  - 生成失败
+                  progress:
+                    type: integer
+                    minimum: 0
+                    maximum: 100
+                    description: 进度百分比（processing 时有效）
+                  image_url:
+                    type: string
+                    format: uri
+                    description: 生成图片的 CDN URL（done 时返回）
+                  thumbnail_url:
+                    type: string
+                    format: uri
+                    description: 缩略图 URL（done 时返回）
+                  width:
+                    type: integer
+                    description: 图片宽度（done 时返回）
+                  height:
+                    type: integer
+                    description: 图片高度（done 时返回）
+                  error:
+                    type: string
+                    description: 失败原因（failed 时返回），如 "内容审核不通过"
+                  created_at:
+                    type: string
+                    format: date-time
+
+  # ═══════════════════ 报表导出（异步） ═══════════════════
+
+  /reports/export:
+    post:
+      tags: [Reports]
+      operationId: submitReportExport
+      summary: 提交报表导出任务（异步）
+      description: |
+        提交大数据量报表导出请求。
+        需要通过 GET /reports/export/{task_id} 轮询任务结果。
+      x-async:
+        poll_path: /reports/export/{task_id}
+        poll_method: GET
+        status_field: status
+        success_value: done
+        failure_value: failed
+        poll_interval: 3
+        poll_timeout: 120
+        result_fields:
+          - download_url
+          - file_size
+          - row_count
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [report_type, start_date, end_date]
+              properties:
+                report_type:
+                  type: string
+                  enum: [sales_summary, user_activity, inventory, revenue]
+                  description: 报表类型
+                start_date:
+                  type: string
+                  format: date
+                  description: 数据起始日期
+                  example: "2026-01-01"
+                end_date:
+                  type: string
+                  format: date
+                  description: 数据截止日期
+                  example: "2026-05-01"
+                format:
+                  type: string
+                  enum: [csv, xlsx, pdf]
+                  default: "xlsx"
+                filters:
+                  type: object
+                  description: 可选筛选条件
+                  properties:
+                    department:
+                      type: string
+                    region:
+                      type: string
+      responses:
+        "202":
+          description: 导出任务已提交
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  task_id:
+                    type: string
+                    example: "rpt_xyz789"
+                  status:
+                    type: string
+                    example: "queued"
+                  estimated_seconds:
+                    type: integer
+                    description: 预估耗时（秒）
+                    example: 45
+        "400":
+          description: 参数错误（如日期范围无效）
+        "429":
+          description: 并发导出任务数已达上限
+
+  /reports/export/{task_id}:
+    get:
+      tags: [Reports]
+      operationId: getReportExportStatus
+      summary: 查询报表导出任务状态（轮询接口）
+      parameters:
+        - name: task_id
+          in: path
+          required: true
+          schema:
+            type: string
+          description: 任务 ID
+      responses:
+        "200":
+          description: 返回任务状态
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [task_id, status]
+                properties:
+                  task_id:
+                    type: string
+                  status:
+                    type: string
+                    enum: [queued, processing, done, failed]
+                    description: |
+                      queued    - 排队中
+                      processing - 生成中
+                      done      - 导出完成
+                      failed    - 导出失败
+                  progress:
+                    type: integer
+                    minimum: 0
+                    maximum: 100
+                  download_url:
+                    type: string
+                    format: uri
+                    description: 报表下载链接（done 时返回，有效期 1 小时）
+                  file_size:
+                    type: integer
+                    description: 文件大小，单位字节（done 时返回）
+                  row_count:
+                    type: integer
+                    description: 报表数据行数（done 时返回）
+                  error:
+                    type: string
+                    description: 失败原因（failed 时返回）
+                  error_code:
+                    type: string
+                    description: 错误码（failed 时返回），如 DATA_SOURCE_TIMEOUT
+
+  # ═══════════════════ 图片管理（同步 CRUD） ═══════════════════
+
+  /images:
+    get:
+      tags: [Images]
+      operationId: listImages
+      summary: 查询已生成的图片列表
+      parameters:
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [done, failed]
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 1
+        - name: page_size
+          in: query
+          schema:
+            type: integer
+            default: 20
+            maximum: 100
+      responses:
+        "200":
+          description: 图片列表
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/ImageRecord"
+                  total:
+                    type: integer
+                  page:
+                    type: integer
+
+  /images/{image_id}:
+    get:
+      tags: [Images]
+      operationId: getImage
+      summary: 查询单张图片详情
+      parameters:
+        - name: image_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: 图片详情
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ImageRecord"
+        "404":
+          description: 图片不存在
+
+    delete:
+      tags: [Images]
+      operationId: deleteImage
+      summary: 删除图片
+      parameters:
+        - name: image_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "204":
+          description: 删除成功
+        "404":
+          description: 图片不存在
+
+  # ═══════════════════ 报表管理（同步） ═══════════════════
+
+  /reports:
+    get:
+      tags: [Reports]
+      operationId: listReports
+      summary: 查询已导出的报表列表
+      parameters:
+        - name: report_type
+          in: query
+          schema:
+            type: string
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 1
+      responses:
+        "200":
+          description: 报表列表
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/ReportRecord"
+                  total:
+                    type: integer
+
+  /reports/{report_id}:
+    delete:
+      tags: [Reports]
+      operationId: deleteReport
+      summary: 删除报表记录
+      parameters:
+        - name: report_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "204":
+          description: 删除成功
+
+  # ═══════════════════ 模板管理（纯同步 CRUD） ═══════════════════
+
+  /templates:
+    post:
+      tags: [Templates]
+      operationId: createTemplate
+      summary: 创建 Prompt 模板
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, prompt_template]
+              properties:
+                name:
+                  type: string
+                  description: 模板名称
+                  example: "电商产品主图模板"
+                prompt_template:
+                  type: string
+                  description: Prompt 模板，用 {{placeholder}} 占位
+                  example: "Professional product photo of {{product}}, white background, studio lighting"
+                category:
+                  type: string
+                  example: "ecommerce"
+                tags:
+                  type: array
+                  items:
+                    type: string
+                  example: ["product", "white-bg"]
+      responses:
+        "201":
+          description: 模板创建成功
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TemplateRecord"
+
+    get:
+      tags: [Templates]
+      operationId: listTemplates
+      summary: 查询模板列表
+      parameters:
+        - name: category
+          in: query
+          schema:
+            type: string
+        - name: keyword
+          in: query
+          schema:
+            type: string
+          description: 按名称或标签搜索
+      responses:
+        "200":
+          description: 模板列表
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/TemplateRecord"
+
+  /templates/{template_id}:
+    get:
+      tags: [Templates]
+      operationId: getTemplate
+      summary: 查询单个模板
+      parameters:
+        - name: template_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: 模板详情
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TemplateRecord"
+
+    put:
+      tags: [Templates]
+      operationId: updateTemplate
+      summary: 更新模板
+      parameters:
+        - name: template_id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                prompt_template:
+                  type: string
+                category:
+                  type: string
+                tags:
+                  type: array
+                  items:
+                    type: string
+      responses:
+        "200":
+          description: 更新成功
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TemplateRecord"
+
+    delete:
+      tags: [Templates]
+      operationId: deleteTemplate
+      summary: 删除模板
+      parameters:
+        - name: template_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "204":
+          description: 删除成功
+
+# ─────────────────────────────────────────────────────
+#  组件 / Schema 定义
+# ─────────────────────────────────────────────────────
+
+components:
+  schemas:
+
+    ImageRecord:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+          example: "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+        prompt:
+          type: string
+        size:
+          type: string
+        style:
+          type: string
+        image_url:
+          type: string
+          format: uri
+        thumbnail_url:
+          type: string
+          format: uri
+        width:
+          type: integer
+        height:
+          type: integer
+        status:
+          type: string
+          enum: [done, failed]
+        created_at:
+          type: string
+          format: date-time
+
+    ReportRecord:
+      type: object
+      properties:
+        id:
+          type: string
+        report_type:
+          type: string
+        start_date:
+          type: string
+          format: date
+        end_date:
+          type: string
+          format: date
+        format:
+          type: string
+        download_url:
+          type: string
+          format: uri
+        file_size:
+          type: integer
+        row_count:
+          type: integer
+        status:
+          type: string
+          enum: [done, failed]
+        created_at:
+          type: string
+          format: date-time
+
+    TemplateRecord:
+      type: object
+      properties:
+        id:
+          type: string
+          example: "tpl_001"
+        name:
+          type: string
+        prompt_template:
+          type: string
+        category:
+          type: string
+        tags:
+          type: array
+          items:
+            type: string
+        usage_count:
+          type: integer
+          default: 0
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
